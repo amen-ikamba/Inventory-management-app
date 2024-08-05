@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { firestore, auth } from "@/firebase"; // Ensure Firebase is correctly initialized
+import { firestore } from "@/firebase";
 import {
   Box,
   Modal,
@@ -11,6 +11,8 @@ import {
   Button,
   Select,
   MenuItem,
+  InputLabel,
+  FormControl,
 } from "@mui/material";
 import {
   collection,
@@ -20,71 +22,47 @@ import {
   setDoc,
   deleteDoc,
   getDoc,
-  where,
 } from "firebase/firestore";
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-} from "firebase/auth";
 
 export default function Home() {
-  const [user, setUser] = useState(null);
   const [inventory, setInventory] = useState([]);
   const [open, setOpen] = useState(false);
   const [itemName, setItemName] = useState("");
-  const [category, setCategory] = useState(""); // Added state for category
-  const [searchTerm, setSearchTerm] = useState(""); // Added state for search term
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        updateInventory();
-      } else {
-        setInventory([]);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const updateInventory = async () => {
-    if (!user) return;
-
-    const snapshot = query(
-      collection(firestore, "inventory"),
-      where("userId", "==", user.uid) // Filter items by user ID
-    );
+    const snapshot = query(collection(firestore, "inventory"));
     const docs = await getDocs(snapshot);
     const inventoryList = [];
     docs.forEach((doc) => {
       inventoryList.push({
-        id: doc.id,
+        name: doc.id,
         ...doc.data(),
       });
     });
     setInventory(inventoryList);
   };
 
-  const addItem = async (item, category) => {
-    if (!user) return;
-
-    const docRef = doc(collection(firestore, "inventory"));
+  const addItem = async (name) => {
+    const docRef = doc(collection(firestore, "inventory"), name || itemName);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
       const { quantity } = docSnap.data();
       await setDoc(docRef, { quantity: quantity + 1 }, { merge: true });
     } else {
-      await setDoc(docRef, { name: item, category, quantity: 1, userId: user.uid });
+      await setDoc(docRef, { quantity: 1, category: selectedCategory });
     }
 
     await updateInventory();
+    setItemName("");
+    setSelectedCategory("");
+    handleClose();
   };
 
-  const removeItem = async (itemId) => {
-    const docRef = doc(firestore, "inventory", itemId);
+  const removeItem = async (name) => {
+    const docRef = doc(collection(firestore, "inventory"), name);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
@@ -99,41 +77,21 @@ export default function Home() {
     await updateInventory();
   };
 
-  const handleLogin = async (email, password) => {
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      console.error("Login failed", error);
-    }
-  };
+  useEffect(() => {
+    updateInventory();
+  }, []);
 
-  const handleSignUp = async (email, password) => {
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      console.error("Sign up failed", error);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Logout failed", error);
-    }
-  };
+  const filteredInventory = inventory.filter((item) =>
+    item.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    (selectedCategory ? item.category === selectedCategory : true)
+  );
 
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
 
-  const filteredInventory = inventory.filter(item =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
     <Box
-      width="100vw"
+      width="100%"
       height="100vh"
       display="flex"
       flexDirection="column"
@@ -141,196 +99,190 @@ export default function Home() {
       alignItems="center"
       gap={4}
       bgcolor="#f4f4f9"
-      padding={3}
+      padding={2}
     >
       <Typography variant="h4" color="#2c3e50" marginBottom={2}>
         Inventory Management
       </Typography>
 
-      {!user ? (
-        <Box>
+      <TextField
+        variant="outlined"
+        label="Search by Name"
+        fullWidth
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        sx={{ marginBottom: 2 }}
+      />
+
+      <FormControl fullWidth variant="outlined" sx={{ marginBottom: 2 }}>
+        <InputLabel>Category</InputLabel>
+        <Select
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+          label="Category"
+        >
+          <MenuItem value="">All Categories</MenuItem>
+          <MenuItem value="Electronics">Electronics</MenuItem>
+          <MenuItem value="Furniture">Furniture</MenuItem>
+          <MenuItem value="Clothing">Clothing</MenuItem>
+          <MenuItem value="Books">Books</MenuItem>
+        </Select>
+      </FormControl>
+
+      <Modal open={open} onClose={handleClose}>
+        <Box
+          position="absolute"
+          top="50%"
+          left="50%"
+          width={400}
+          bgcolor="white"
+          borderRadius={3}
+          boxShadow={24}
+          p={4}
+          display="flex"
+          flexDirection="column"
+          gap={3}
+          sx={{
+            transform: "translate(-50%, -50%)",
+          }}
+        >
+          <Typography variant="h6" color="#2c3e50">
+            Add Item
+          </Typography>
           <TextField
             variant="outlined"
-            label="Email"
-            onChange={(e) => setEmail(e.target.value)}
-            margin="normal"
+            label="Item Name"
+            fullWidth
+            value={itemName}
+            onChange={(e) => setItemName(e.target.value)}
           />
-          <TextField
-            variant="outlined"
-            label="Password"
-            type="password"
-            onChange={(e) => setPassword(e.target.value)}
-            margin="normal"
-          />
-          <Button onClick={() => handleLogin(email, password)}>Login</Button>
-          <Button onClick={() => handleSignUp(email, password)}>Sign Up</Button>
-        </Box>
-      ) : (
-        <>
-          <Button variant="contained" color="primary" onClick={handleLogout}>
-            Logout
-          </Button>
+          <FormControl fullWidth variant="outlined">
+            <InputLabel>Category</InputLabel>
+            <Select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              label="Category"
+            >
+              <MenuItem value="Electronics">Electronics</MenuItem>
+              <MenuItem value="Furniture">Furniture</MenuItem>
+              <MenuItem value="Clothing">Clothing</MenuItem>
+              <MenuItem value="Books">Books</MenuItem>
+            </Select>
+          </FormControl>
           <Button
             variant="contained"
             color="primary"
-            onClick={handleOpen}
-            sx={{
-              padding: "10px 20px",
-              borderRadius: "8px",
-              textTransform: "none",
-              transition: "background-color 0.3s",
-              "&:hover": {
-                backgroundColor: "#1abc9c",
-              },
-            }}
+            onClick={() => addItem(itemName)}
+            sx={{ textTransform: "none" }}
           >
-            Add New Item
+            Add
           </Button>
+        </Box>
+      </Modal>
 
-          <TextField
-            variant="outlined"
-            placeholder="Search..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            sx={{ width: "300px", margin: "20px 0" }}
-          />
+      <Button
+        variant="contained"
+        color="primary"
+        onClick={handleOpen}
+        sx={{
+          padding: "10px 20px",
+          borderRadius: "8px",
+          textTransform: "none",
+          transition: "background-color 0.3s",
+          "&:hover": {
+            backgroundColor: "#1abc9c",
+          },
+        }}
+      >
+        Add New Item
+      </Button>
 
-          <Modal open={open} onClose={handleClose}>
+      <Box
+        border="1px solid #ccc"
+        borderRadius={4}
+        width="100%"
+        maxWidth="1000px"
+        maxHeight="500px"
+        overflow="auto"
+        boxShadow="0px 4px 10px rgba(0, 0, 0, 0.1)"
+        bgcolor="white"
+        marginTop={2}
+      >
+        <Box
+          width="100%"
+          height="60px"
+          bgcolor="#2980b9"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          borderRadius="4px 4px 0 0"
+          color="white"
+        >
+          <Typography variant="h6">Inventory</Typography>
+        </Box>
+
+        <Stack
+          direction="column"
+          spacing={2}
+          padding={2}
+        >
+          {filteredInventory.map(({ name, quantity, category }) => (
             <Box
-              position="absolute"
-              top="50%"
-              left="50%"
-              width={400}
-              bgcolor="white"
-              borderRadius={3}
-              boxShadow={24}
-              p={4}
+              key={name}
+              width="100%"
+              minHeight="120px"
               display="flex"
               flexDirection="column"
-              gap={3}
-              sx={{
-                transform: "translate(-50%, -50%)",
-              }}
+              justifyContent="space-between"
+              bgcolor="#ecf0f1"
+              padding="10px 20px"
+              borderRadius={2}
+              boxShadow="0px 2px 4px rgba(0, 0, 0, 0.1)"
+              marginBottom={2}
             >
-              <Typography variant="h6" color="#2c3e50">
-                Add Item
-              </Typography>
-              <TextField
-                variant="outlined"
-                fullWidth
-                label="Item Name"
-                value={itemName}
-                onChange={(e) => {
-                  setItemName(e.target.value);
-                }}
-              />
-              <Select
-                variant="outlined"
-                fullWidth
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                displayEmpty
-              >
-                <MenuItem value="">Select Category</MenuItem>
-                <MenuItem value="Electronics">Electronics</MenuItem>
-                <MenuItem value="Furniture">Furniture</MenuItem>
-                <MenuItem value="Clothing">Clothing</MenuItem>
-              </Select>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => {
-                  addItem(itemName, category);
-                  setItemName("");
-                  setCategory("");
-                  handleClose();
-                }}
-              >
-                Add
-              </Button>
-            </Box>
-          </Modal>
-
-          <Box
-            border="1px solid #ccc"
-            borderRadius={4}
-            width="800px"
-            maxHeight="500px"
-            overflow="auto"
-            boxShadow="0px 4px 10px rgba(0, 0, 0, 0.1)"
-          >
-            <Box
-              width="100%"
-              height="100px"
-              bgcolor="#2980b9"
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              borderRadius="4px 4px 0 0"
-              color="white"
-            >
-              <Typography variant="h2">Inventory</Typography>
-            </Box>
-
-            <Stack
-              width="100%"
-              spacing={2}
-              padding={3}
-            >
-              {filteredInventory.map(({ id, name, category, quantity }) => (
-                <Box
-                  key={id}
-                  width="100%"
-                  minHeight="100px"
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  bgcolor="#ecf0f1"
-                  padding="10px 20px"
-                  borderRadius={2}
-                  boxShadow="0px 2px 4px rgba(0, 0, 0, 0.1)"
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Typography
+                  variant="body2"
+                  color="#7f8c8d"
                 >
-                  <Typography
-                    variant="h6"
-                    color="#2c3e50"
-                  >
-                    {name.charAt(0).toUpperCase() + name.slice(1)}
-                  </Typography>
-                  <Typography
-                    variant="h6"
-                    color="#2c3e50"
-                  >
-                    {category}
-                    </Typography>
-                  <Typography
-                    variant="h6"
-                    color="#2c3e50"
-                  >
-                    Quantity: {quantity}
-                  </Typography>
-                  <Stack direction="row" spacing={2}>
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      onClick={() => addItem(name, category)}
-                    >
-                      Add
-                    </Button>
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      onClick={() => removeItem(id)}
-                    >
-                      Remove
-                    </Button>
-                  </Stack>
-                </Box>
-              ))}
-            </Stack>
-          </Box>
-        </>
-      )}
+                  Category: {category}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="#7f8c8d"
+                >
+                  Quantity: {quantity}
+                </Typography>
+              </Box>
+              <Typography
+                variant="h6"
+                color="#2c3e50"
+                marginBottom={1}
+              >
+                {name.charAt(0).toUpperCase() + name.slice(1)}
+              </Typography>
+              <Stack direction="row" spacing={2}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => addItem(name)}
+                  sx={{ textTransform: "none" }}
+                >
+                  Add
+                </Button>
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={() => removeItem(name)}
+                  sx={{ textTransform: "none" }}
+                >
+                  Remove
+                </Button>
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      </Box>
     </Box>
   );
 }
-
